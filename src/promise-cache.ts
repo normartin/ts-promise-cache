@@ -1,25 +1,21 @@
 import {setInterval} from "timers";
 
-export interface CacheConfig<T> {
-    // how often to check for expired entries (default: "NEVER")
-    checkInterval: number | "NEVER";
-    // time to live after last access (default: "FOREVER")
-    ttl: number | "FOREVER";
-    // fallback for rejected promises (default: (error) => Promise.reject(error))
-    onReject: (error: Error, key: string, loader: (key: string) => Promise<T>) => Promise<T>;
+export class CacheConfig<T> {
+    // how often to check for expired entries
+    public readonly checkInterval: number | "NEVER" = "NEVER";
+    // time to live after last access
+    public readonly ttl: number | "FOREVER" = "FOREVER";
+    // remove rejected promises?
+    public readonly removeRejected: boolean = true;
+    // fallback for rejected promises
+    public readonly onReject: (error: Error, key: string, loader: (key: string) => Promise<T>) => Promise<T>
+        = (error) => Promise.reject(error)
     // called before entries are removed because of ttl
-    onRemove: (key: string, p: Promise<T>) => void;
-    // remove rejected promises? (default: true)
-    removeRejected: boolean;
+    public readonly onRemove: (key: string, p: Promise<T>) => void
+        = () => undefined
 }
 
-const defaultConfig: CacheConfig<any> = {
-    checkInterval: "NEVER",
-    onReject: (error) => Promise.reject(error),
-    onRemove: () => undefined,
-    removeRejected: true,
-    ttl: "FOREVER",
-};
+const defaultConfig = new CacheConfig();
 
 class CacheEntry<T> {
     public lastAccess: number = Date.now();

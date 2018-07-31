@@ -22,20 +22,26 @@ expect(value).to.eq("value");
 ```
 
 ## Config ##
-The second constructor argument is an optional config (Partial config is ok).
+The second constructor argument is an optional config (Partial&lt;CacheConfig> config is ok).
 ```typescript
-interface CacheConfig<T> {
-    // how often to check for expired entries (default: "NEVER")
-    checkInterval: number | "NEVER";
-    // time to live after last access (default: "FOREVER")
-    ttl: number | "FOREVER";
-    // fallback for rejected promises (default: (error) => Promise.reject(error))
-    onReject: (error: Error, key: string, loader: (key: string) => Promise<T>) => Promise<T>;
+export class CacheConfig<T> {
+    // how often to check for expired entries
+    public readonly checkInterval: number | "NEVER" = "NEVER";
+    // time to live after last access
+    public readonly ttl: number | "FOREVER" = "FOREVER";
+    // remove rejected promises?
+    public readonly removeRejected: boolean = true;
+    // fallback for rejected promises
+    public readonly onReject: (error: Error, key: string, loader: (key: string) => Promise<T>) => Promise<T>
+        = (error) => Promise.reject(error)
     // called before entries are removed because of ttl
-    onRemove: (key: string, p: Promise<T>) => void;
-    // remove rejected promises? (default: true)
-    removeRejected: boolean;
+    public readonly onRemove: (key: string, p: Promise<T>) => void
+        = () => undefined
 }
+```
+Using [Partial](https://www.typescriptlang.org/docs/handbook/advanced-types.html)&lt;CacheConfig> it looks like:
+```typescript
+new PromiseCache<string>(loader, {ttl: 1000, onRemove: (key) => console.log("removing", key)});
 ```
 
 ## Single promise cache ##
