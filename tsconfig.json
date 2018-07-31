@@ -11,7 +11,7 @@
       "es2015",
       "es6"
     ],
-    "outDir": "ts-promise-cache/dist"
+    "outDir": "dist"
   },
   "include": [
     "src/**/*"
