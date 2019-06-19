@@ -49,15 +49,11 @@ describe("Promise Cache", () => {
         const loader = new TestLoader("value", 5);
         const cache = new PromiseCache<string>(() => loader.load());
 
-        cache.set("key", "value");
-
-        const firstRequest = cache.get("key");
-        const secondRequest = cache.get("key");
-
-        await Promise.all([firstRequest, secondRequest]);
-
+        cache.set("key", Promise.resolve("value1"));
+		
+        const value = await cache.get("key");
+        expect(value).to.eq("value1");
         expect(loader.timesLoaded).to.eq(0);
-        expectStats(cache, { hits: 2, misses: 0, entries: 1, failLoads: 0 });
     });
 
     it("should cleanup after ttl", async () => {
