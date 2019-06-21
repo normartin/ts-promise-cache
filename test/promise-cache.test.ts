@@ -49,8 +49,8 @@ describe("Promise Cache", () => {
         const loader = new TestLoader("value", 5);
         const cache = new PromiseCache<string>(() => loader.load());
 
-        cache.set("key", Promise.resolve("value1"));
-		
+        cache.set("key", "value1");
+
         const value = await cache.get("key");
         expect(value).to.eq("value1");
         expect(loader.timesLoaded).to.eq(0);
