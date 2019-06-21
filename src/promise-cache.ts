@@ -61,6 +61,10 @@ export class PromiseCache<T> {
         }
     }
 
+    public set(key: string, value: T): void {
+        this.cache.set(key, new CacheEntry<Promise<T>>(Promise.resolve(value)));
+    }
+
     public statistics(): Stats {
         return this.stats.export(this.cache.size);
     }

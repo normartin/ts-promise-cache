@@ -45,6 +45,17 @@ describe("Promise Cache", () => {
         expectStats(cache, {hits: 1, misses: 1, entries: 1, failLoads: 0});
     });
 
+    it("can set cache", async () => {
+        const loader = new TestLoader("value", 5);
+        const cache = new PromiseCache<string>(() => loader.load());
+
+        cache.set("key", "value1");
+
+        const value = await cache.get("key");
+        expect(value).to.eq("value1");
+        expect(loader.timesLoaded).to.eq(0);
+    });
+
     it("should cleanup after ttl", async () => {
         const loader = new TestLoader("value");
         const cache = new PromiseCache<string>(() => loader.load(), {ttl: 5, checkInterval: 2});
