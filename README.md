@@ -66,6 +66,13 @@ interface Stats {
 }
  ```
 
+## Set value ##
+You can set a value directly
+```typescript
+cache.set("key", "value");
+expect(await cache.get("key")).to.eq("value");
+```
+
 ## Retry ##
 Retry can by implemented by using [ts-retry-promise](https://www.npmjs.com/package/ts-retry-promise)
 ```typescript
