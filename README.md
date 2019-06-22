@@ -3,6 +3,7 @@
 [![Build Status](https://travis-ci.org/normartin/ts-promise-cache.svg?branch=master)](https://travis-ci.org/normartin/ts-promise-cache)
 [![Coverage Status](https://coveralls.io/repos/github/normartin/ts-promise-cache/badge.svg?branch=master)](https://coveralls.io/github/normartin/ts-promise-cache?branch=master)
 [![Dependencies](https://david-dm.org/normartin/ts-promise-cache.svg)](https://david-dm.org/normartin/ts-promise-cache)
+[![NPM](https://img.shields.io/npm/v/ts-promise-cache.svg?color=#555)](https://www.npmjs.com/package/ts-promise-cache)
 
 Loading cache for promises. 
 Does not suffer from thundering herds problem (aka [cache stampede](https://en.wikipedia.org/wiki/Cache_stampede)).
