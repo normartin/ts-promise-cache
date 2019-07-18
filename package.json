@@ -30,7 +30,7 @@
     "coverage": "nyc mocha",
     "coveralls": "nyc report --reporter=text-lcov | coveralls",
     "validate": "npm run tslint && npm run coverage",
-    "prepublish": "npm run validate && npm run build",
+    "prepublishOnly": "npm run validate && npm run build",
     "mutation-test": "stryker run"
   },
   "devDependencies": {
@@ -44,10 +44,10 @@
     "nyc": "^14.1.1",
     "stryker": "^0.19.4",
     "stryker-api": "^0.13.1",
-    "stryker-html-reporter": "^0.12.2",
-    "stryker-mocha-framework": "^0.8.4",
-    "stryker-mocha-runner": "^0.10.6",
-    "stryker-typescript": "^0.9.2",
+    "stryker-html-reporter": "^0.18.1",
+    "stryker-mocha-framework": "^0.15.1",
+    "stryker-mocha-runner": "^0.17.1",
+    "stryker-typescript": "^0.18.1",
     "ts-node": "^5.0.1",
     "ts-retry-promise": "^0.0.10",
     "tslint": "^5.18.0",
