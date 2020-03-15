@@ -178,8 +178,8 @@ describe("Promise Cache", () => {
     });
 
     it("should call onRemove callback", async () => {
-        let removeKey: string;
-        let removeValue: Promise<string>;
+        let removeKey: string | undefined;
+        let removeValue: Promise<string> | undefined;
 
         const cache = new PromiseCache<string>(() => Promise.resolve("value"),
             {
@@ -201,12 +201,12 @@ describe("Promise Cache", () => {
 
     it("onRemove callback should not prevent cleanup of other entries", async () => {
         const keysLoaded: string[] = [];
-        const loader = (key) => {
+        const loader = (key: string) => {
             keysLoaded.push(key);
             return Promise.resolve("value");
         };
 
-        const onRemove = (key) => {
+        const onRemove = (key: string) => {
             if (key === "fail") {
                 throw Error("onRemove");
             }
