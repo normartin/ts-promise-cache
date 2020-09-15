@@ -161,6 +161,46 @@ describe("Promise Cache", () => {
         expectStats(cache, {hits: 1, misses: 1, entries: 1, failLoads: 1});
     });
 
+    it("will retry after expiration of rejected", async () => {
+        let calls = 0;
+        const cache = new PromiseCache<string>(() => {
+            if( calls < 2 ) {
+                calls += 1;
+                return Promise.reject(Error("Expected"));
+            } else {
+                return Promise.resolve("ok");
+            }
+        }, {removeRejected: false, expires: 5, checkInterval: "NEVER"});
+
+        //  first call will fail
+        const error = await expectError(cache.get("key"));
+        expect(error.message).to.eq("Expected");
+        expect(calls).to.eq(1);
+
+        expectStats(cache, {hits: 0, misses: 1, entries: 1, failLoads: 1});
+
+        await wait(10);
+        expect(calls).to.eq(1);
+
+        //  second call will fail also
+        const error2 = await expectError(cache.get("key"));
+        expect(calls).to.eq(2);
+        expectStats(cache, {hits: 0, misses: 2, entries: 1, failLoads: 2});
+
+        //  will cache the failure (removeRejected)
+        const error3 = await expectError(cache.get("key"));
+        expect(calls).to.eq(2);
+        expectStats(cache, {hits: 1, misses: 2, entries: 1, failLoads: 2});
+
+        await wait(10);
+
+        //  third call will succeed
+        const valid = await cache.get("key");
+        expect(valid).to.eq("ok");
+        expect(calls).to.eq(2);
+        expectStats(cache, {hits: 1, misses: 3, entries: 1, failLoads: 2});
+    });
+
     it("can use failure handler", async () => {
         const cache = new PromiseCache<string>(allaysFails,
             {onReject: () => Promise.resolve("fallback")},
