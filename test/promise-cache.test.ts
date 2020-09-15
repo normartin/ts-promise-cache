@@ -201,6 +201,101 @@ describe("Promise Cache", () => {
         expectStats(cache, {hits: 1, misses: 3, entries: 1, failLoads: 2});
     });
 
+    //
+    //  This demonstrates how you can nest two caches to have a different expiry timeout
+    //  for successes and failures -- that is, a 'success' is cached for longer than
+    //  a failure is cached for.  This is handy for external resources that you want to
+    //  let fail (ie, don't want ts-retry-promise), but don't want to remember the failure
+    //  for anywhere near as long as the success.  For example, if I want to cache access
+    //  tokens:  if it fails I want to let the system retry the login every minute (in case
+    //  the creds are fixed), but if it succeeds the token is valid for 6 hours.  With a
+    //  simple cache, remembering a failure for 6 hours is super annoying to find out when
+    //  the resource is fixed.
+    //
+    it("pattern will retry after expiration of rejected", async () => {
+        let calls = 0;
+        //  This will cache success AND failure for 5ms
+        const intCache = new PromiseCache<string>(() => {
+            switch( calls++ ) {
+                case 0:
+                case 1:
+                case 3:
+                    return Promise.reject(Error("Expected"));
+                case 2:
+                case 4:
+                    return Promise.resolve("ok");
+                default:
+                    return Promise.reject(Error("too many calls"));
+            }
+        }, {removeRejected: false, expires: 5, checkInterval: "NEVER"});
+
+        //  This will cache success only for 15ms (meaning - failures are cached for 5ms and successes for 15ms)
+        const cache = new PromiseCache<string>((key) => {
+            return intCache.get(key);
+        }, {removeRejected: true, expires: 20, checkInterval: "NEVER"});
+
+        //  zero'th call will fail:
+        expect(calls).to.eq(0);
+        expect((await expectError(cache.get("key"))).message).to.eq("Expected");
+        expect(calls).to.eq(1);
+
+        //  this failure is cached:
+        expect((await expectError(cache.get("key"))).message).to.eq("Expected");
+        expect(calls).to.eq(1);
+
+        //  wait for the 5ms failure cache expiry:
+        await wait(10);
+
+        //  second call will fail too:
+        expect(calls).to.eq(1);
+        expect((await expectError(cache.get("key"))).message).to.eq("Expected");
+        expect(calls).to.eq(2);
+
+        //  wait for the 5ms failure cache expiry:
+        await wait(10);
+
+        //  third call will succeed:
+        expect(calls).to.eq(2);
+        expect(await cache.get("key")).to.eq("ok");
+        expect(calls).to.eq(3);
+
+        //  this will be cached
+        expect(calls).to.eq(3);
+        expect(await cache.get("key")).to.eq("ok");
+        expect(calls).to.eq(3);
+
+        //  wait for 5ms failure expiry:
+        await wait(10);
+
+        //  this will still be cached even though the underlying cache has timed out
+        expect(calls).to.eq(3);
+        expect(await cache.get("key")).to.eq("ok");
+        expect(calls).to.eq(3);
+
+        //  wait for full cache expiry:
+        await wait(40);
+
+        //  next call will be an error:
+        expect(calls).to.eq(3);
+        expect((await expectError(cache.get("key"))).message).to.eq("Expected");
+        expect(calls).to.eq(4);
+
+        //  ...  which can be cached
+        expect(calls).to.eq(4);
+        expect((await expectError(cache.get("key"))).message).to.eq("Expected");
+        expect(calls).to.eq(4);
+
+        //  wait for 5ms failure expiry:
+        await wait(10);
+
+        //  last call is successful
+        expect(calls).to.eq(4);
+        expect(await cache.get("key")).to.eq("ok");
+        expect(calls).to.eq(5);
+
+        expectStats(cache, {hits: 2, misses: 7, entries: 1, failLoads: 5});
+    });
+
     it("can use failure handler", async () => {
         const cache = new PromiseCache<string>(allaysFails,
             {onReject: () => Promise.resolve("fallback")},
