@@ -70,6 +70,20 @@ describe("Promise Cache", () => {
         expectStats(cache, {hits: 0, misses: 2, entries: 1, failLoads: 0});
     });
 
+    it("should cleanup after expires", async () => {
+        const loader = new TestLoader("value");
+        const cache = new PromiseCache<string>(() => loader.load(), {expires: 5, checkInterval: 2});
+
+        expect(await cache.get("key")).to.eq("value");
+
+        await wait(10);
+
+        expect(await cache.get("key")).to.eq("value");
+
+        expect(loader.timesLoaded).to.eq(2);
+        expectStats(cache, {hits: 0, misses: 2, entries: 1, failLoads: 0});
+    });
+
     it("should not remove entry before ttl", async () => {
         const loader = new TestLoader("value");
         const cache = new PromiseCache<string>(() => loader.load(), {ttl: 10, checkInterval: 2});
@@ -95,6 +109,20 @@ describe("Promise Cache", () => {
         await cache.get("key");
 
         expect(loader.timesLoaded).to.eq(1);
+    });
+
+    it("should expire even if no checkInterval", async () => {
+        const loader = new TestLoader("value");
+        const cache = new PromiseCache<string>(() => loader.load(), {expires: 5, checkInterval: "NEVER"});
+
+        expect(await cache.get("key")).to.eq("value");
+
+        await wait(10);
+
+        expect(await cache.get("key")).to.eq("value");
+
+        expect(loader.timesLoaded).to.eq(2);
+        expectStats(cache, {hits: 0, misses: 2, entries: 1, failLoads: 0});
     });
 
     it("returns rejected promise", async () => {
