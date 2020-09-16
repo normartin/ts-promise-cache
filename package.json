@@ -34,6 +34,10 @@
     "mutation-test": "stryker run"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^3.2.4",
+    "@stryker-mutator/mocha-framework": "^3.2.4",
+    "@stryker-mutator/mocha-runner": "^3.2.4",
+    "@stryker-mutator/typescript": "^3.2.4",
     "@types/chai": "^4.2.11",
     "@types/mocha": "^7.0.2",
     "@types/node": "^14.0.5",
@@ -42,12 +46,6 @@
     "del-cli": "^3.0.1",
     "mocha": "^7.2.0",
     "nyc": "^15.0.1",
-    "stryker": "^0.35.1",
-    "stryker-api": "^0.24.1",
-    "stryker-html-reporter": "^0.18.1",
-    "stryker-mocha-framework": "^0.15.1",
-    "stryker-mocha-runner": "^0.17.1",
-    "stryker-typescript": "^0.18.1",
     "ts-node": "^8.10.1",
     "ts-retry-promise": "^0.4.0",
     "tslint": "^6.1.2",

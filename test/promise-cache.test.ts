@@ -72,11 +72,11 @@ describe("Promise Cache", () => {
 
     it("should not remove entry before ttl", async () => {
         const loader = new TestLoader("value");
-        const cache = new PromiseCache<string>(() => loader.load(), {ttl: 10, checkInterval: 2});
+        const cache = new PromiseCache<string>(() => loader.load(), {ttl: 20, checkInterval: 2});
 
         await cache.get("key");
 
-        await wait(5);
+        await wait(10);
 
         await cache.get("key");
 
