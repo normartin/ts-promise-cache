@@ -72,7 +72,7 @@ export class PromiseCache<T> {
         return this.stats.export(this.cache.size);
     }
 
-    private cleanUp() {
+    cleanUp() { //  needs to be non-private so that we can call it from tests.  need to call it from tests to achieve full branch coverage.
         const now = Date.now();
 
         // workaround as for(const it of this.cache.entries()) does not work

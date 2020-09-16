@@ -125,6 +125,31 @@ describe("Promise Cache", () => {
         expectStats(cache, {hits: 0, misses: 2, entries: 1, failLoads: 0});
     });
 
+    //  This test is here primarily to get the last few % code-coverage by explicitly invoking .cleanUp() when
+    //  checkInterval is NEVER -- otherwise branch coverage is reduced.
+    it("explicit expiration when no checkInterval", async () => {
+        const loader = new TestLoader("value");
+        const cache = new PromiseCache<string>(() => loader.load(), {ttl: 5, checkInterval: "NEVER"});
+
+        expect(await cache.get("key")).to.eq("value");
+
+        await wait(10);
+
+        expect(await cache.get("key")).to.eq("value");
+
+        expect(loader.timesLoaded).to.eq(1);
+        expectStats(cache, {hits: 1, misses: 1, entries: 1, failLoads: 0});
+
+        await wait(10);  // cache is configured for ttl-after-access, so we need to wait again
+        cache.cleanUp();
+
+        expect(await cache.get("key")).to.eq("value");
+
+        expect(loader.timesLoaded).to.eq(2);
+        expectStats(cache, {hits: 1, misses: 2, entries: 1, failLoads: 0});
+    });
+
+
     it("returns rejected promise", async () => {
         const cache = new PromiseCache<string>(() => Promise.reject(Error("Expected")));
 
