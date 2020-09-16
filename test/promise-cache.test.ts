@@ -72,7 +72,7 @@ describe("Promise Cache", () => {
 
     it("should cleanup after expires", async () => {
         const loader = new TestLoader("value");
-        const cache = new PromiseCache<string>(() => loader.load(), {expires: 5, checkInterval: 2});
+        const cache = new PromiseCache<string>(() => loader.load(), {ttlAfter: "WRITE", ttl: 5, checkInterval: 2});
 
         expect(await cache.get("key")).to.eq("value");
 
@@ -113,7 +113,7 @@ describe("Promise Cache", () => {
 
     it("should expire even if no checkInterval", async () => {
         const loader = new TestLoader("value");
-        const cache = new PromiseCache<string>(() => loader.load(), {expires: 5, checkInterval: "NEVER"});
+        const cache = new PromiseCache<string>(() => loader.load(), {ttlAfter: "WRITE", ttl: 5, checkInterval: "NEVER"});
 
         expect(await cache.get("key")).to.eq("value");
 
@@ -170,7 +170,7 @@ describe("Promise Cache", () => {
             } else {
                 return Promise.resolve("ok");
             }
-        }, {removeRejected: false, expires: 5, checkInterval: "NEVER"});
+        }, {removeRejected: false, ttlAfter: "WRITE", ttl: 5, checkInterval: "NEVER"});
 
         //  first call will fail
         const error = await expectError(cache.get("key"));
@@ -227,12 +227,12 @@ describe("Promise Cache", () => {
                 default:
                     return Promise.reject(Error("too many calls"));
             }
-        }, {removeRejected: false, expires: 5, checkInterval: "NEVER"});
+        }, {removeRejected: false, ttlAfter: "WRITE", ttl: 5, checkInterval: "NEVER"});
 
         //  This will cache success only for 15ms (meaning - failures are cached for 5ms and successes for 15ms)
         const cache = new PromiseCache<string>((key) => {
             return intCache.get(key);
-        }, {removeRejected: true, expires: 20, checkInterval: "NEVER"});
+        }, {removeRejected: true, ttlAfter: "WRITE", ttl: 20, checkInterval: "NEVER"});
 
         //  zero'th call will fail:
         expect(calls).to.eq(0);

@@ -28,8 +28,10 @@ The second constructor argument is an optional config (Partial&lt;CacheConfig> c
 export class CacheConfig<T> {
     // how often to check for expired entries
     public readonly checkInterval: number | "NEVER" = "NEVER";
-    // time to live after last access
+    // time to live (milliseconds)
     public readonly ttl: number | "FOREVER" = "FOREVER";
+    // specifies that entries should be removed 'ttl' milliseconds from either when the cache was accessed (read) or when the cache value was created or replaced
+    public readonly ttlAfter: "ACCESS"|"WRITE" = "ACCESS";
     // remove rejected promises?
     public readonly removeRejected: boolean = true;
     // fallback for rejected promises
@@ -55,6 +57,17 @@ const cache = singlePromiseCache(() => Promise.resolve("value"));
 const value = await cache();
 expect(value).to.eq("value");
 ```
+
+## TTL Expiry ##
+The default behavior is for values to remain in the cache for 'ttl' milliseconds since the last access.  It
+is sometimes useful for cache expiry to be relative to when the cached value was first created (or last changed).
+
+For this situation, set ttlAfter:"WRITE":
+```typescript
+new PromiseCache<string>(loader, {ttl: 1000, ttlAfter:"WRITE"});
+
+```
+
 
 ## Statistics ##
 _stats()_ returns statistics:

@@ -3,10 +3,10 @@ import {setInterval} from "timers";
 export class CacheConfig<T> {
     // how often to check for expired entries
     public readonly checkInterval: number | "NEVER" = "NEVER";
-    // time to live after last access
+    // time to live (milliseconds)
     public readonly ttl: number | "FOREVER" = "FOREVER";
-    // time to live after initial creation
-    public readonly expires: number | "NEVER" = "NEVER";
+    // specifies that entries should be removed 'ttl' milliseconds from either when the cache was accessed (read) or when the cache value was created or replaced
+    public readonly ttlAfter: "ACCESS"|"WRITE" = "ACCESS";
     // remove rejected promises?
     public readonly removeRejected: boolean = true;
     // fallback for rejected promises
@@ -42,7 +42,7 @@ export class PromiseCache<T> {
     constructor(private readonly loader: (key: string) => Promise<T>, config?: Partial<CacheConfig<T>>) {
         this.conf = Object.assign({}, defaultConfig, config);
 
-        if (this.conf.checkInterval !== "NEVER" && (this.conf.ttl !== "FOREVER" || this.conf.expires !== "NEVER" )) {
+        if (this.conf.checkInterval !== "NEVER" && this.conf.ttl !== "FOREVER") {
             const interval = setInterval(() => this.cleanUp(), this.conf.checkInterval);
             interval.unref();
         }
@@ -51,7 +51,7 @@ export class PromiseCache<T> {
     public get(key: string): Promise<T> {
         const found = this.cache.get(key);
 
-        if (found && (this.conf.expires === "NEVER" || (found.create + (this.conf.expires as number)) >= Date.now())) {
+        if (found && (this.conf.ttl === "FOREVER" || this.conf.ttlAfter === "ACCESS" || ((found.create + (this.conf.ttl as number)) >= Date.now()))) {
             this.stats.hit();
             return found.value;
         } else {
@@ -78,16 +78,24 @@ export class PromiseCache<T> {
         // workaround as for(const it of this.cache.entries()) does not work
         Array.from(this.cache.entries()).forEach((it) => {
             const [key, entry] = it;
-            if (
-              (this.conf.ttl !== "FOREVER" && (entry.lastAccess + (this.conf.ttl as number)) < now) ||
-              (this.conf.expires !== "NEVER" && (entry.create + (this.conf.expires as number)) < now)
-            ) {
-                try {
-                    this.conf.onRemove(key, entry.value);
-                } catch (error) {
-                    // nothing we can do
+            if (this.conf.ttl !== "FOREVER") {
+                const ttl = this.conf.ttl as number;
+                let removeIt = false;
+
+                if( this.conf.ttlAfter === "ACCESS" && (entry.lastAccess + ttl) < now ) {
+                    removeIt = true;
+                } else if( this.conf.ttlAfter === "WRITE" && (entry.create + ttl) < now ) {
+                    removeIt = true;
                 }
-                this.cache.delete(key);
+
+                if( removeIt ) {
+                    try {
+                        this.conf.onRemove(key, entry.value);
+                    } catch (error) {
+                        // nothing we can do
+                    }
+                    this.cache.delete(key);
+                }
             }
         });
     }
