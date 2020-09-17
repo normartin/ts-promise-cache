@@ -23,19 +23,29 @@ class CacheEntry<T> {
     public create: number;
     public lastAccess: number;
 
-    constructor(public v: T) {
+    constructor(public v: Promise<T>) {
         this.create = this.lastAccess = Date.now();
     }
 
-    public get value(): T {
+    public get value(): Promise<T> {
         this.lastAccess = Date.now();
         return this.v;
+    }
+
+    public isStale( conf: CacheConfig<T> ): boolean {
+        if (conf.ttl === "FOREVER" ) {
+            return false;
+        } else if( conf.ttlAfter === "WRITE" ) {
+            return this.create + (conf.ttl as number) < Date.now();
+        } else {
+            return this.lastAccess + (conf.ttl as number) < Date.now();
+        }
     }
 }
 
 export class PromiseCache<T> {
 
-    private cache: Map<string, CacheEntry<Promise<T>>> = new Map<string, CacheEntry<Promise<T>>>();
+    private cache: Map<string, CacheEntry<T>> = new Map<string, CacheEntry<T>>();
     private readonly conf: CacheConfig<T>;
     private readonly stats = new StatsCollector();
 
@@ -51,7 +61,7 @@ export class PromiseCache<T> {
     public get(key: string): Promise<T> {
         const found = this.cache.get(key);
 
-        if (found && (this.conf.ttl === "FOREVER" || this.conf.ttlAfter === "ACCESS" || ((found.create + (this.conf.ttl as number)) >= Date.now()))) {
+        if (found && !found.isStale(this.conf)) {
             this.stats.hit();
             return found.value;
         } else {
@@ -59,43 +69,33 @@ export class PromiseCache<T> {
             const loaded = this.loader(key)
                 .catch((error) => this.handleReject(error, key));
 
-            this.cache.set(key, new CacheEntry<Promise<T>>(loaded));
+            this.cache.set(key, new CacheEntry<T>(loaded));
             return loaded;
         }
     }
 
     public set(key: string, value: T): void {
-        this.cache.set(key, new CacheEntry<Promise<T>>(Promise.resolve(value)));
+        this.cache.set(key, new CacheEntry<T>(Promise.resolve(value)));
     }
 
     public statistics(): Stats {
         return this.stats.export(this.cache.size);
     }
 
-    cleanUp() { //  needs to be non-private so that we can call it from tests.  need to call it from tests to achieve full branch coverage.
+    private cleanUp() {
         const now = Date.now();
 
         // workaround as for(const it of this.cache.entries()) does not work
         Array.from(this.cache.entries()).forEach((it) => {
             const [key, entry] = it;
-            if (this.conf.ttl !== "FOREVER") {
-                const ttl = this.conf.ttl as number;
-                let removeIt = false;
 
-                if( this.conf.ttlAfter === "ACCESS" && (entry.lastAccess + ttl) < now ) {
-                    removeIt = true;
-                } else if( this.conf.ttlAfter === "WRITE" && (entry.create + ttl) < now ) {
-                    removeIt = true;
+            if (entry.isStale(this.conf)) {
+                try {
+                    this.conf.onRemove(key, entry.value);
+                } catch (error) {
+                    // nothing we can do
                 }
-
-                if( removeIt ) {
-                    try {
-                        this.conf.onRemove(key, entry.value);
-                    } catch (error) {
-                        // nothing we can do
-                    }
-                    this.cache.delete(key);
-                }
+                this.cache.delete(key);
             }
         });
     }
