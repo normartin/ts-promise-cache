@@ -31,7 +31,7 @@ export class CacheConfig<T> {
     // time to live (milliseconds)
     public readonly ttl: number | "FOREVER" = "FOREVER";
     // specifies that entries should be removed 'ttl' milliseconds from either when the cache was accessed (read) or when the cache value was created or replaced
-    public readonly ttlAfter: "ACCESS"|"WRITE" = "ACCESS";
+    public readonly ttlAfter: "ACCESS" | "WRITE" = "ACCESS";
     // remove rejected promises?
     public readonly removeRejected: boolean = true;
     // fallback for rejected promises
@@ -94,6 +94,3 @@ const loader = failsOneTime("value");
 const cache = new PromiseCache<string>(() => retry(loader));
 expect(await cache.get("key")).to.eq("value");
 ```
-
-## Previous versions ##
-Source: https://bitbucket.org/martinmo/ts-tools
