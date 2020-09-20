@@ -1,6 +1,6 @@
 {
   "name": "ts-promise-cache",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "license": "MIT",
   "description": "a loading cache for promises",
   "repository": "https://github.com/normartin/ts-promise-cache",
