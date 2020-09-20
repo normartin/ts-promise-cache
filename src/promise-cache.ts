@@ -3,8 +3,10 @@ import {setInterval} from "timers";
 export class CacheConfig<T> {
     // how often to check for expired entries
     public readonly checkInterval: number | "NEVER" = "NEVER";
-    // time to live after last access
+    // time to live (milliseconds)
     public readonly ttl: number | "FOREVER" = "FOREVER";
+    // specifies that entries should be removed 'ttl' milliseconds from either when the cache was accessed (read) or when the cache value was created or replaced
+    public readonly ttlAfter: "ACCESS"|"WRITE" = "ACCESS";
     // remove rejected promises?
     public readonly removeRejected: boolean = true;
     // fallback for rejected promises
@@ -18,21 +20,32 @@ export class CacheConfig<T> {
 const defaultConfig = new CacheConfig();
 
 class CacheEntry<T> {
-    public lastAccess: number = Date.now();
+    public create: number;
+    public lastAccess: number;
 
-    constructor(public v: T) {
-
+    constructor(public v: Promise<T>) {
+        this.create = this.lastAccess = Date.now();
     }
 
-    public get value(): T {
+    public get value(): Promise<T> {
         this.lastAccess = Date.now();
         return this.v;
+    }
+
+    public isStale( conf: CacheConfig<T> ): boolean {
+        if (conf.ttl === "FOREVER" ) {
+            return false;
+        } else if( conf.ttlAfter === "WRITE" ) {
+            return this.create + (conf.ttl as number) < Date.now();
+        } else {
+            return this.lastAccess + (conf.ttl as number) < Date.now();
+        }
     }
 }
 
 export class PromiseCache<T> {
 
-    private cache: Map<string, CacheEntry<Promise<T>>> = new Map<string, CacheEntry<Promise<T>>>();
+    private cache: Map<string, CacheEntry<T>> = new Map<string, CacheEntry<T>>();
     private readonly conf: CacheConfig<T>;
     private readonly stats = new StatsCollector();
 
@@ -48,7 +61,7 @@ export class PromiseCache<T> {
     public get(key: string): Promise<T> {
         const found = this.cache.get(key);
 
-        if (found) {
+        if (found && !found.isStale(this.conf)) {
             this.stats.hit();
             return found.value;
         } else {
@@ -56,13 +69,13 @@ export class PromiseCache<T> {
             const loaded = this.loader(key)
                 .catch((error) => this.handleReject(error, key));
 
-            this.cache.set(key, new CacheEntry<Promise<T>>(loaded));
+            this.cache.set(key, new CacheEntry<T>(loaded));
             return loaded;
         }
     }
 
     public set(key: string, value: T): void {
-        this.cache.set(key, new CacheEntry<Promise<T>>(Promise.resolve(value)));
+        this.cache.set(key, new CacheEntry<T>(Promise.resolve(value)));
     }
 
     public statistics(): Stats {
@@ -75,7 +88,8 @@ export class PromiseCache<T> {
         // workaround as for(const it of this.cache.entries()) does not work
         Array.from(this.cache.entries()).forEach((it) => {
             const [key, entry] = it;
-            if ((entry.lastAccess + (this.conf.ttl as number)) < now) {
+
+            if (entry.isStale(this.conf)) {
                 try {
                     this.conf.onRemove(key, entry.value);
                 } catch (error) {
