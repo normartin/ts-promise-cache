@@ -1,13 +1,13 @@
 module.exports = function (config) {
     config.set({
-        files: [{pattern: 'test/**/*.ts', included: true, mutated: false}],
-        testRunner: "mocha",
-
         mutator: "typescript",
-        transpilers: ["typescript"],
-        reporter: ["html", "clear-text", "progress"],
+        packageManager: "npm",
+        reporters: ["html", "clear-text", "progress"],
+        transpilers: [],
         coverageAnalysis: "off",
-        tsconfigFile: "tsconfig.stryker.json",
-        mutate: ["src/*.ts"]
+        tsconfigFile: "tsconfig.json",
+        mutate: ["src/**/*.ts"],
+        logLevel: 'info',
+        testRunner: "mocha"
     });
 };
