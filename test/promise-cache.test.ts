@@ -1,513 +1,542 @@
-import {expect} from "chai";
+import { expect } from "chai";
 import "mocha";
-import {retry} from "ts-retry-promise";
-import {PromiseCache} from "../src/promise-cache";
+import { retry } from "ts-retry-promise";
+import { PromiseCache } from "../src/promise-cache";
 
 describe("Promise Cache", () => {
+  it("can use", async () => {
+    const cache = new PromiseCache<string>((key) => Promise.resolve(key));
 
-    it("can use", async () => {
-        const cache = new PromiseCache<string>((key) => Promise.resolve(key));
+    const value = await cache.get("key");
+    expect(value).to.eq("key");
 
-        const value = await cache.get("key");
-        expect(value).to.eq("key");
+    const value2 = await cache.get("key2");
+    expect(value2).to.eq("key2");
+  });
 
-        const value2 = await cache.get("key2");
-        expect(value2).to.eq("key2");
+  it("can cache", async () => {
+    const loader = new TestLoader("value", 5);
+    const cache = new PromiseCache<string>(() => loader.load());
+
+    const firstRequest = cache.get("key");
+    const secondRequest = cache.get("key");
+
+    await Promise.all([firstRequest, secondRequest]);
+
+    expect(loader.timesLoaded).to.eq(1);
+    expectStats(cache, { hits: 1, misses: 1, entries: 1, failLoads: 0 });
+  });
+
+  it("can set cache", async () => {
+    const loader = new TestLoader("value", 5);
+    const cache = new PromiseCache<string>(() => loader.load());
+
+    cache.set("key", "value1");
+
+    const value = await cache.get("key");
+    expect(value).to.eq("value1");
+    expect(loader.timesLoaded).to.eq(0);
+  });
+
+  it("should cleanup after ttl", async () => {
+    const loader = new TestLoader("value");
+    const cache = new PromiseCache<string>(() => loader.load(), {
+      ttl: 5,
+      checkInterval: 2,
     });
 
-    it("config demo", async () => {
-        const cache = new PromiseCache<string>(
-                () => Promise.resolve("value"),
-                {
-                    checkInterval: 30000,
-                    onReject: (error: Error,
-                               key: string,
-                               loader: (key: string) => Promise<string>) => Promise.reject(error),
-                    ttl: -1,
-                },
-        );
+    await cache.get("key");
 
-        const value = await cache.get("key");
+    await wait(10);
 
-        expect(value).to.eq("value");
+    await cache.get("key");
+
+    expect(loader.timesLoaded).to.eq(2);
+    expectStats(cache, { hits: 0, misses: 2, entries: 1, failLoads: 0 });
+  });
+
+  it("should cleanup after expires", async () => {
+    const loader = new TestLoader("value");
+    const cache = new PromiseCache<string>(() => loader.load(), {
+      ttlAfter: "WRITE",
+      ttl: 5,
+      checkInterval: 2,
     });
 
-    it("can cache", async () => {
-        const loader = new TestLoader("value", 5);
-        const cache = new PromiseCache<string>(() => loader.load());
+    expect(await cache.get("key")).to.eq("value");
 
-        const firstRequest = cache.get("key");
-        const secondRequest = cache.get("key");
+    await wait(10);
 
-        await Promise.all([firstRequest, secondRequest]);
+    expect(await cache.get("key")).to.eq("value");
 
-        expect(loader.timesLoaded).to.eq(1);
-        expectStats(cache, {hits: 1, misses: 1, entries: 1, failLoads: 0});
+    expect(loader.timesLoaded).to.eq(2);
+    expectStats(cache, { hits: 0, misses: 2, entries: 1, failLoads: 0 });
+  });
+
+  it("should not remove entry before ttl", async () => {
+    const loader = new TestLoader("value");
+    const cache = new PromiseCache<string>(() => loader.load(), {
+      ttl: 20,
+      checkInterval: 2,
     });
 
-    it("can set cache", async () => {
-        const loader = new TestLoader("value", 5);
-        const cache = new PromiseCache<string>(() => loader.load());
+    await cache.get("key");
 
-        cache.set("key", "value1");
+    await wait(10);
 
-        const value = await cache.get("key");
-        expect(value).to.eq("value1");
-        expect(loader.timesLoaded).to.eq(0);
+    await cache.get("key");
+
+    expect(loader.timesLoaded).to.eq(1);
+    expectStats(cache, { hits: 1, misses: 1, entries: 1, failLoads: 0 });
+  });
+
+  it("last access properly reset", async () => {
+    const loader = new TestLoader("value");
+    const cache = new PromiseCache<string>(() => loader.load(), {
+      ttl: 20,
+      checkInterval: 2,
     });
 
-    it("should cleanup after ttl", async () => {
-        const loader = new TestLoader("value");
-        const cache = new PromiseCache<string>(() => loader.load(), {ttl: 5, checkInterval: 2});
+    await cache.get("key");
+    await wait(15);
+    await cache.get("key");
+    await wait(15);
+    await cache.get("key"); //  without the middle .get, this would reload if lastAccess wasn't properly reset
 
-        await cache.get("key");
+    expect(loader.timesLoaded).to.eq(1);
+    expectStats(cache, { hits: 2, misses: 1, entries: 1, failLoads: 0 });
+  });
 
-        await wait(10);
-
-        await cache.get("key");
-
-        expect(loader.timesLoaded).to.eq(2);
-        expectStats(cache, {hits: 0, misses: 2, entries: 1, failLoads: 0});
+  it("expires not reset on last access", async () => {
+    const loader = new TestLoader("value");
+    const cache = new PromiseCache<string>(() => loader.load(), {
+      ttl: 20,
+      checkInterval: 2,
+      ttlAfter: "WRITE",
     });
 
-    it("should cleanup after expires", async () => {
-        const loader = new TestLoader("value");
-        const cache = new PromiseCache<string>(() => loader.load(), {ttlAfter: "WRITE", ttl: 5, checkInterval: 2});
+    await cache.get("key");
+    await wait(15);
+    await cache.get("key");
+    await wait(15);
+    await cache.get("key");
 
-        expect(await cache.get("key")).to.eq("value");
+    expect(loader.timesLoaded).to.eq(2);
+    expectStats(cache, { hits: 1, misses: 2, entries: 1, failLoads: 0 });
+  });
 
-        await wait(10);
-
-        expect(await cache.get("key")).to.eq("value");
-
-        expect(loader.timesLoaded).to.eq(2);
-        expectStats(cache, {hits: 0, misses: 2, entries: 1, failLoads: 0});
+  it("cleanup on access only if checkInterval is NEVER", async () => {
+    const loader = new TestLoader("value");
+    const cache = new PromiseCache<string>(() => loader.load(), {
+      ttl: 5,
+      checkInterval: "NEVER",
     });
 
-    it("should not remove entry before ttl", async () => {
-        const loader = new TestLoader("value");
-        const cache = new PromiseCache<string>(() => loader.load(), {ttl: 20, checkInterval: 2});
+    await cache.get("key");
 
-        await cache.get("key");
+    await wait(10);
 
-        await wait(10);
+    //  with checkInterval=NEVER, the cleanup doesn't happen until you access
+    expect(loader.timesLoaded).to.eq(1);
 
-        await cache.get("key");
+    await cache.get("key");
+    expect(loader.timesLoaded).to.eq(2);
+  });
 
-        expect(loader.timesLoaded).to.eq(1);
-        expectStats(cache, {hits: 1, misses: 1, entries: 1, failLoads: 0});
+  it("should expire even if no checkInterval", async () => {
+    const loader = new TestLoader("value");
+    const cache = new PromiseCache<string>(() => loader.load(), {
+      ttlAfter: "WRITE",
+      ttl: 5,
+      checkInterval: "NEVER",
     });
 
-    it("last access properly reset", async () => {
-        const loader = new TestLoader("value");
-        const cache = new PromiseCache<string>(() => loader.load(), {ttl: 20, checkInterval: 2});
+    expect(await cache.get("key")).to.eq("value");
 
-        await cache.get("key");
-        await wait(15);
-        await cache.get("key");
-        await wait(15);
-        await cache.get("key");  //  without the middle .get, this would reload if lastAccess wasn't properly reset
+    await wait(10);
 
-        expect(loader.timesLoaded).to.eq(1);
-        expectStats(cache, {hits: 2, misses: 1, entries: 1, failLoads: 0});
-    });
+    expect(await cache.get("key")).to.eq("value");
 
-    it("expires not reset on last access", async () => {
-        const loader = new TestLoader("value");
-        const cache = new PromiseCache<string>(() => loader.load(), {ttl: 20, checkInterval: 2, ttlAfter: "WRITE"});
+    expect(loader.timesLoaded).to.eq(2);
+    expectStats(cache, { hits: 0, misses: 2, entries: 1, failLoads: 0 });
+  });
 
-        await cache.get("key");
-        await wait(15);
-        await cache.get("key");
-        await wait(15);
-        await cache.get("key");
+  it("returns rejected promise", async () => {
+    const cache = new PromiseCache<string>(() =>
+      Promise.reject(Error("Expected"))
+    );
 
-        expect(loader.timesLoaded).to.eq(2);
-        expectStats(cache, {hits: 1, misses: 2, entries: 1, failLoads: 0});
-    });
+    const promise = cache.get("key");
 
+    const error = await expectError(promise);
+    expect(error.message).to.eq("Expected");
 
-    it("cleanup on access only if checkInterval is NEVER", async () => {
-        const loader = new TestLoader("value");
-        const cache = new PromiseCache<string>(() => loader.load(), {ttl: 5, checkInterval: "NEVER"});
+    expectStats(cache, { hits: 0, misses: 1, entries: 0, failLoads: 1 });
+  });
 
-        await cache.get("key");
+  it("removes rejected promises by default", async () => {
+    const cache = new PromiseCache<string>(failsOneTime("value"));
 
-        await wait(10);
+    await expectError(cache.get("key"));
 
-        //  with checkInterval=NEVER, the cleanup doesn't happen until you access
-        expect(loader.timesLoaded).to.eq(1);
+    expect(await cache.get("key")).to.eq("value");
+  });
 
-        await cache.get("key");
-        expect(loader.timesLoaded).to.eq(2);
-    });
+  it("can keep rejected promise", async () => {
+    let calls = 0;
+    const cache = new PromiseCache<string>(
+      () => {
+        calls += 1;
+        return Promise.reject(Error("Expected"));
+      },
+      { removeRejected: false }
+    );
 
+    await expectError(cache.get("key"));
 
-    it("should expire even if no checkInterval", async () => {
-        const loader = new TestLoader("value");
-        const cache = new PromiseCache<string>(() => loader.load(), {
-            ttlAfter: "WRITE",
-            ttl: 5,
-            checkInterval: "NEVER"
-        });
+    const error = await expectError(cache.get("key"));
+    expect(error.message).to.eq("Expected");
 
-        expect(await cache.get("key")).to.eq("value");
+    expect(calls).to.eq(1);
 
-        await wait(10);
+    expectStats(cache, { hits: 1, misses: 1, entries: 1, failLoads: 1 });
+  });
 
-        expect(await cache.get("key")).to.eq("value");
+  it("will retry after expiration of rejected", async () => {
+    let calls = 0;
+    const cache = new PromiseCache<string>(
+      () => {
+        if (calls < 2) {
+          calls += 1;
+          return Promise.reject(Error("Expected"));
+        } else {
+          return Promise.resolve("ok");
+        }
+      },
+      {
+        removeRejected: false,
+        ttlAfter: "WRITE",
+        ttl: 5,
+        checkInterval: "NEVER",
+      }
+    );
 
-        expect(loader.timesLoaded).to.eq(2);
-        expectStats(cache, {hits: 0, misses: 2, entries: 1, failLoads: 0});
-    });
+    //  first call will fail
+    const error = await expectError(cache.get("key"));
+    expect(error.message).to.eq("Expected");
+    expect(calls).to.eq(1);
 
-    it("returns rejected promise", async () => {
-        const cache = new PromiseCache<string>(() => Promise.reject(Error("Expected")));
+    expectStats(cache, { hits: 0, misses: 1, entries: 1, failLoads: 1 });
 
-        const promise = cache.get("key");
+    await wait(10);
+    expect(calls).to.eq(1);
 
-        const error = await expectError(promise);
-        expect(error.message).to.eq("Expected");
+    //  second call will fail also
+    await expectError(cache.get("key"));
+    expect(calls).to.eq(2);
+    expectStats(cache, { hits: 0, misses: 2, entries: 1, failLoads: 2 });
 
-        expectStats(cache, {hits: 0, misses: 1, entries: 0, failLoads: 1});
-    });
+    //  will cache the failure (removeRejected)
+    await expectError(cache.get("key"));
+    expect(calls).to.eq(2);
+    expectStats(cache, { hits: 1, misses: 2, entries: 1, failLoads: 2 });
 
-    it("removes rejected promises by default", async () => {
-        const cache = new PromiseCache<string>(failsOneTime("value"));
+    await wait(10);
 
-        await expectError(cache.get("key"));
+    //  third call will succeed
+    const valid = await cache.get("key");
+    expect(valid).to.eq("ok");
+    expect(calls).to.eq(2);
+    expectStats(cache, { hits: 1, misses: 3, entries: 1, failLoads: 2 });
+  });
 
-        expect(await cache.get("key")).to.eq("value");
-    });
-
-    it("can keep rejected promise", async () => {
-        let calls = 0;
-        const cache = new PromiseCache<string>(() => {
-            calls += 1;
+  //
+  //  This demonstrates how you can nest two caches to have a different expiry timeout
+  //  for successes and failures -- that is, a 'success' is cached for longer than
+  //  a failure is cached for.  This is handy for external resources that you want to
+  //  let fail (ie, don't want ts-retry-promise), but don't want to remember the failure
+  //  for anywhere near as long as the success.  For example, if I want to cache access
+  //  tokens:  if it fails I want to let the system retry the login every minute (in case
+  //  the creds are fixed), but if it succeeds the token is valid for 6 hours.  With a
+  //  simple cache, remembering a failure for 6 hours is super annoying to find out when
+  //  the resource is fixed.
+  //
+  it("pattern will retry after expiration of rejected", async () => {
+    let calls = 0;
+    //  This will cache success AND failure for 5ms
+    const intCache = new PromiseCache<string>(
+      () => {
+        switch (calls++) {
+          case 0:
+          case 1:
+          case 3:
             return Promise.reject(Error("Expected"));
-        }, {removeRejected: false});
+          case 2:
+          case 4:
+            return Promise.resolve("ok");
+          default:
+            return Promise.reject(Error("too many calls"));
+        }
+      },
+      {
+        removeRejected: false,
+        ttlAfter: "WRITE",
+        ttl: 5,
+        checkInterval: "NEVER",
+      }
+    );
 
-        await expectError(cache.get("key"));
+    //  This will cache success only for 15ms (meaning - failures are cached for 5ms and successes for 15ms)
+    const cache = new PromiseCache<string>(
+      (key) => {
+        return intCache.get(key);
+      },
+      {
+        removeRejected: true,
+        ttlAfter: "WRITE",
+        ttl: 20,
+        checkInterval: "NEVER",
+      }
+    );
 
-        const error = await expectError(cache.get("key"));
-        expect(error.message).to.eq("Expected");
+    //  zero'th call will fail:
+    expect(calls).to.eq(0);
+    expect((await expectError(cache.get("key"))).message).to.eq("Expected");
+    expect(calls).to.eq(1);
 
-        expect(calls).to.eq(1);
+    //  this failure is cached:
+    expect((await expectError(cache.get("key"))).message).to.eq("Expected");
+    expect(calls).to.eq(1);
 
-        expectStats(cache, {hits: 1, misses: 1, entries: 1, failLoads: 1});
+    //  wait for the 5ms failure cache expiry:
+    await wait(10);
+
+    //  second call will fail too:
+    expect(calls).to.eq(1);
+    expect((await expectError(cache.get("key"))).message).to.eq("Expected");
+    expect(calls).to.eq(2);
+
+    //  wait for the 5ms failure cache expiry:
+    await wait(10);
+
+    //  third call will succeed:
+    expect(calls).to.eq(2);
+    expect(await cache.get("key")).to.eq("ok");
+    expect(calls).to.eq(3);
+
+    //  this will be cached
+    expect(calls).to.eq(3);
+    expect(await cache.get("key")).to.eq("ok");
+    expect(calls).to.eq(3);
+
+    //  wait for 5ms failure expiry:
+    await wait(10);
+
+    //  this will still be cached even though the underlying cache has timed out
+    expect(calls).to.eq(3);
+    expect(await cache.get("key")).to.eq("ok");
+    expect(calls).to.eq(3);
+
+    //  wait for full cache expiry:
+    await wait(40);
+
+    //  next call will be an error:
+    expect(calls).to.eq(3);
+    expect((await expectError(cache.get("key"))).message).to.eq("Expected");
+    expect(calls).to.eq(4);
+
+    //  ...  which can be cached
+    expect(calls).to.eq(4);
+    expect((await expectError(cache.get("key"))).message).to.eq("Expected");
+    expect(calls).to.eq(4);
+
+    //  wait for 5ms failure expiry:
+    await wait(10);
+
+    //  last call is successful
+    expect(calls).to.eq(4);
+    expect(await cache.get("key")).to.eq("ok");
+    expect(calls).to.eq(5);
+
+    expectStats(cache, { hits: 2, misses: 7, entries: 1, failLoads: 5 });
+  });
+
+  it("can use failure handler", async () => {
+    const cache = new PromiseCache<string>(allaysFails, {
+      onReject: () => Promise.resolve("fallback"),
     });
 
-    it("will retry after expiration of rejected", async () => {
-        let calls = 0;
-        const cache = new PromiseCache<string>(() => {
-            if (calls < 2) {
-                calls += 1;
-                return Promise.reject(Error("Expected"));
-            } else {
-                return Promise.resolve("ok");
-            }
-        }, {removeRejected: false, ttlAfter: "WRITE", ttl: 5, checkInterval: "NEVER"});
+    const promise = cache.get("key");
 
-        //  first call will fail
-        const error = await expectError(cache.get("key"));
-        expect(error.message).to.eq("Expected");
-        expect(calls).to.eq(1);
+    expect(await promise).to.eq("fallback");
+  });
 
-        expectStats(cache, {hits: 0, misses: 1, entries: 1, failLoads: 1});
+  it("failure handler puts result in cache if removeRejected:false", async () => {
+    let calls = 0;
+    const cache = new PromiseCache<string>(
+      async () => {
+        calls += 1;
+        throw Error("failed to load");
+      },
+      { onReject: () => Promise.resolve("fallback"), removeRejected: false }
+    );
 
-        await wait(10);
-        expect(calls).to.eq(1);
+    const values = await Promise.all([cache.get("key"), cache.get("key")]);
 
-        //  second call will fail also
-        const error2 = await expectError(cache.get("key"));
-        expect(calls).to.eq(2);
-        expectStats(cache, {hits: 0, misses: 2, entries: 1, failLoads: 2});
+    expect(values).to.deep.eq(["fallback", "fallback"]);
+    expect(calls).to.eq(1);
+  });
 
-        //  will cache the failure (removeRejected)
-        const error3 = await expectError(cache.get("key"));
-        expect(calls).to.eq(2);
-        expectStats(cache, {hits: 1, misses: 2, entries: 1, failLoads: 2});
-
-        await wait(10);
-
-        //  third call will succeed
-        const valid = await cache.get("key");
-        expect(valid).to.eq("ok");
-        expect(calls).to.eq(2);
-        expectStats(cache, {hits: 1, misses: 3, entries: 1, failLoads: 2});
+  it("calls failure handler only once", async () => {
+    let onRejectCalled = 0;
+    const cache = new PromiseCache<string>(failsOneTime("value"), {
+      checkInterval: 5,
+      onReject: () => {
+        onRejectCalled += 1;
+        return Promise.resolve("fallback");
+      },
+      ttl: 2,
     });
 
-    //
-    //  This demonstrates how you can nest two caches to have a different expiry timeout
-    //  for successes and failures -- that is, a 'success' is cached for longer than
-    //  a failure is cached for.  This is handy for external resources that you want to
-    //  let fail (ie, don't want ts-retry-promise), but don't want to remember the failure
-    //  for anywhere near as long as the success.  For example, if I want to cache access
-    //  tokens:  if it fails I want to let the system retry the login every minute (in case
-    //  the creds are fixed), but if it succeeds the token is valid for 6 hours.  With a
-    //  simple cache, remembering a failure for 6 hours is super annoying to find out when
-    //  the resource is fixed.
-    //
-    it("pattern will retry after expiration of rejected", async () => {
-        let calls = 0;
-        //  This will cache success AND failure for 5ms
-        const intCache = new PromiseCache<string>(() => {
-            switch (calls++) {
-                case 0:
-                case 1:
-                case 3:
-                    return Promise.reject(Error("Expected"));
-                case 2:
-                case 4:
-                    return Promise.resolve("ok");
-                default:
-                    return Promise.reject(Error("too many calls"));
-            }
-        }, {removeRejected: false, ttlAfter: "WRITE", ttl: 5, checkInterval: "NEVER"});
+    expect(await cache.get("key")).to.eq("fallback");
+    await wait(10);
+    expect(await cache.get("key")).to.eq("value");
 
-        //  This will cache success only for 15ms (meaning - failures are cached for 5ms and successes for 15ms)
-        const cache = new PromiseCache<string>((key) => {
-            return intCache.get(key);
-        }, {removeRejected: true, ttlAfter: "WRITE", ttl: 20, checkInterval: "NEVER"});
+    expect(onRejectCalled).to.eq(1);
+  });
 
-        //  zero'th call will fail:
-        expect(calls).to.eq(0);
-        expect((await expectError(cache.get("key"))).message).to.eq("Expected");
-        expect(calls).to.eq(1);
+  it("should call onRemove callback", async () => {
+    let removeKey: string | undefined;
+    let removeValue: Promise<string> | undefined;
 
-        //  this failure is cached:
-        expect((await expectError(cache.get("key"))).message).to.eq("Expected");
-        expect(calls).to.eq(1);
-
-        //  wait for the 5ms failure cache expiry:
-        await wait(10);
-
-        //  second call will fail too:
-        expect(calls).to.eq(1);
-        expect((await expectError(cache.get("key"))).message).to.eq("Expected");
-        expect(calls).to.eq(2);
-
-        //  wait for the 5ms failure cache expiry:
-        await wait(10);
-
-        //  third call will succeed:
-        expect(calls).to.eq(2);
-        expect(await cache.get("key")).to.eq("ok");
-        expect(calls).to.eq(3);
-
-        //  this will be cached
-        expect(calls).to.eq(3);
-        expect(await cache.get("key")).to.eq("ok");
-        expect(calls).to.eq(3);
-
-        //  wait for 5ms failure expiry:
-        await wait(10);
-
-        //  this will still be cached even though the underlying cache has timed out
-        expect(calls).to.eq(3);
-        expect(await cache.get("key")).to.eq("ok");
-        expect(calls).to.eq(3);
-
-        //  wait for full cache expiry:
-        await wait(40);
-
-        //  next call will be an error:
-        expect(calls).to.eq(3);
-        expect((await expectError(cache.get("key"))).message).to.eq("Expected");
-        expect(calls).to.eq(4);
-
-        //  ...  which can be cached
-        expect(calls).to.eq(4);
-        expect((await expectError(cache.get("key"))).message).to.eq("Expected");
-        expect(calls).to.eq(4);
-
-        //  wait for 5ms failure expiry:
-        await wait(10);
-
-        //  last call is successful
-        expect(calls).to.eq(4);
-        expect(await cache.get("key")).to.eq("ok");
-        expect(calls).to.eq(5);
-
-        expectStats(cache, {hits: 2, misses: 7, entries: 1, failLoads: 5});
+    const cache = new PromiseCache<string>(() => Promise.resolve("value"), {
+      checkInterval: 2,
+      onRemove: (key, value) => {
+        removeKey = key;
+        removeValue = value;
+      },
+      ttl: 5,
     });
 
-    it("can use failure handler", async () => {
-        const cache = new PromiseCache<string>(allaysFails,
-                {onReject: () => Promise.resolve("fallback")},
-        );
+    await cache.get("key");
 
-        const promise = cache.get("key");
+    await wait(10);
 
-        expect(await promise).to.eq("fallback");
+    expect(removeKey).to.eq("key");
+    expect(await removeValue).to.eq("value");
+  });
+
+  it("should call onRemove callback without check interval", async () => {
+    let removeKey: string | undefined;
+    let removeValue: Promise<string> | undefined;
+
+    const cache = new PromiseCache<string>(() => Promise.resolve("value"), {
+      checkInterval: "NEVER",
+      onRemove: (key, value) => {
+        removeKey = key;
+        removeValue = value;
+      },
+      ttl: 5,
     });
 
-    it("failure handler puts result in cache if removeRejected:false", async () => {
-        let calls = 0;
-        const cache = new PromiseCache<string>(async () => {
-                    calls += 1;
-                    throw Error("failed to load");
-                },
-                {onReject: () => Promise.resolve("fallback"), removeRejected: false},
-        );
+    await cache.get("key");
 
-        const values = await Promise.all([cache.get("key"), cache.get("key")]);
+    await wait(10);
 
-        expect(values).to.deep.eq(["fallback", "fallback"]);
-        expect(calls).to.eq(1);
+    // access the key to trigger eviction
+    cache.get("key");
+
+    expect(removeKey).to.eq("key");
+    expect(await removeValue).to.eq("value");
+  });
+
+  it("onRemove callback should not prevent cleanup of other entries", async () => {
+    const keysLoaded: string[] = [];
+    const loader = (key: string) => {
+      keysLoaded.push(key);
+      return Promise.resolve("value");
+    };
+
+    const onRemove = (key: string) => {
+      if (key === "fail") {
+        throw Error("onRemove");
+      }
+    };
+
+    const cache = new PromiseCache<string>(loader, {
+      checkInterval: 2,
+      onRemove,
+      ttl: 1,
     });
 
-    it("calls failure handler only once", async () => {
-        let onRejectCalled = 0;
-        const cache = new PromiseCache<string>(failsOneTime("value"), {
-                    checkInterval: 5,
-                    onReject: () => {
-                        onRejectCalled += 1;
-                        return Promise.resolve("fallback");
-                    },
-                    ttl: 2,
-                },
-        );
+    await cache.get("fail");
+    await cache.get("noFail");
 
-        expect(await cache.get("key")).to.eq("fallback");
-        await wait(10);
-        expect(await cache.get("key")).to.eq("value");
+    await wait(10);
 
-        expect(onRejectCalled).to.eq(1);
-    });
+    // load again
+    await cache.get("noFail");
 
-    it("should call onRemove callback", async () => {
-        let removeKey: string | undefined;
-        let removeValue: Promise<string> | undefined;
+    expect(keysLoaded).to.deep.eq(["fail", "noFail", "noFail"]);
+  });
 
-        const cache = new PromiseCache<string>(() => Promise.resolve("value"),
-                {
-                    checkInterval: 2,
-                    onRemove: (key, value) => {
-                        removeKey = key;
-                        removeValue = value;
-                    },
-                    ttl: 5,
-                });
-
-        await cache.get("key");
-
-        await wait(10);
-
-        expect(removeKey).to.eq("key");
-        expect(await removeValue).to.eq("value");
-    });
-
-    it("should call onRemove callback without check interval", async () => {
-        let removeKey: string | undefined;
-        let removeValue: Promise<string> | undefined;
-
-        const cache = new PromiseCache<string>(() => Promise.resolve("value"),
-                {
-                    checkInterval: "NEVER",
-                    onRemove: (key, value) => {
-                        removeKey = key;
-                        removeValue = value;
-                    },
-                    ttl: 5,
-                });
-
-        await cache.get("key");
-
-        await wait(10);
-
-        // access the key to trigger eviction
-        cache.get("key");
-
-        expect(removeKey).to.eq("key");
-        expect(await removeValue).to.eq("value");
-    });
-
-    it("onRemove callback should not prevent cleanup of other entries", async () => {
-        const keysLoaded: string[] = [];
-        const loader = (key: string) => {
-            keysLoaded.push(key);
-            return Promise.resolve("value");
-        };
-
-        const onRemove = (key: string) => {
-            if (key === "fail") {
-                throw Error("onRemove");
-            }
-        };
-
-        const cache = new PromiseCache<string>(loader, {checkInterval: 2, onRemove, ttl: 1});
-
-        await cache.get("fail");
-        await cache.get("noFail");
-
-        await wait(10);
-
-        // load again
-        await cache.get("noFail");
-
-        expect(keysLoaded).to.deep.eq(["fail", "noFail", "noFail"]);
-    });
-
-    it("can use ts-retry-config", async () => {
-        const loader = failsOneTime("value");
-        const cache = new PromiseCache<string>(() => retry(loader));
-        expect(await cache.get("key")).to.eq("value");
-    });
-
+  it("can use ts-retry-config", async () => {
+    const loader = failsOneTime("value");
+    const cache = new PromiseCache<string>(() => retry(loader));
+    expect(await cache.get("key")).to.eq("value");
+  });
 });
 
 class TestLoader<T> {
+  public timesLoaded = 0;
 
-    public timesLoaded = 0;
+  constructor(private elem: T, private delay: number = 0) {}
 
-    constructor(private elem: T, private delay: number = 0) {
-
-    }
-
-    public async load(): Promise<T> {
-        await wait(this.delay);
-        this.timesLoaded += 1;
-        return this.elem;
-    }
+  public async load(): Promise<T> {
+    await wait(this.delay);
+    this.timesLoaded += 1;
+    return this.elem;
+  }
 }
 
 export async function wait(ms: number): Promise<void> {
-    if (ms === 0) {
-        return Promise.resolve();
-    }
-    return new Promise<void>((resolve) => setTimeout(resolve, ms));
+  if (ms === 0) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 export async function expectError<T>(p: Promise<T>): Promise<Error> {
-    let result: T;
-    try {
-        result = await p;
-    } catch (error) {
-        return error;
-    }
-    throw Error("Expected error, but got " + result);
+  let result: T;
+  try {
+    result = await p;
+  } catch (error) {
+    return error;
+  }
+  throw Error("Expected error, but got " + result);
 }
 
 const allaysFails = () => Promise.reject(Error("Expected"));
 
 function failsOneTime<T>(value: T): () => Promise<T> {
-    let failed = false;
-    return () => {
-        if (failed) {
-            return Promise.resolve(value);
-        } else {
-            failed = true;
-            return Promise.reject(Error("failing for first time"));
-        }
-    };
+  let failed = false;
+  return () => {
+    if (failed) {
+      return Promise.resolve(value);
+    } else {
+      failed = true;
+      return Promise.reject(Error("failing for first time"));
+    }
+  };
 }
 
-function expectStats<T>(cache: PromiseCache<T>,
-                        values: { misses: number, hits: number, failLoads: number, entries: number }) {
-    const stats = cache.statistics();
-    expect(stats.misses).to.eq(values.misses, "misses");
-    expect(stats.hits).to.eq(values.hits, "hits");
-    expect(stats.failedLoads).to.eq(values.failLoads, "failed loads");
-    expect(stats.entries).to.eq(values.entries, "entries");
+function expectStats<T>(
+  cache: PromiseCache<T>,
+  values: { misses: number; hits: number; failLoads: number; entries: number }
+) {
+  const stats = cache.statistics();
+  expect(stats.misses).to.eq(values.misses, "misses");
+  expect(stats.hits).to.eq(values.hits, "hits");
+  expect(stats.failedLoads).to.eq(values.failLoads, "failed loads");
+  expect(stats.entries).to.eq(values.entries, "entries");
 }
