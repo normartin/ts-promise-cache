@@ -17,14 +17,14 @@ describe("Promise Cache", () => {
 
     it("config demo", async () => {
         const cache = new PromiseCache<string>(
-            () => Promise.resolve("value"),
-            {
-                checkInterval: 30000,
-                onReject: (error: Error,
-                           key: string,
-                           loader: (key: string) => Promise<string>) => Promise.reject(error),
-                ttl: -1,
-            },
+                () => Promise.resolve("value"),
+                {
+                    checkInterval: 30000,
+                    onReject: (error: Error,
+                               key: string,
+                               loader: (key: string) => Promise<string>) => Promise.reject(error),
+                    ttl: -1,
+                },
         );
 
         const value = await cache.get("key");
@@ -145,7 +145,11 @@ describe("Promise Cache", () => {
 
     it("should expire even if no checkInterval", async () => {
         const loader = new TestLoader("value");
-        const cache = new PromiseCache<string>(() => loader.load(), {ttlAfter: "WRITE", ttl: 5, checkInterval: "NEVER"});
+        const cache = new PromiseCache<string>(() => loader.load(), {
+            ttlAfter: "WRITE",
+            ttl: 5,
+            checkInterval: "NEVER"
+        });
 
         expect(await cache.get("key")).to.eq("value");
 
@@ -196,7 +200,7 @@ describe("Promise Cache", () => {
     it("will retry after expiration of rejected", async () => {
         let calls = 0;
         const cache = new PromiseCache<string>(() => {
-            if( calls < 2 ) {
+            if (calls < 2) {
                 calls += 1;
                 return Promise.reject(Error("Expected"));
             } else {
@@ -248,7 +252,7 @@ describe("Promise Cache", () => {
         let calls = 0;
         //  This will cache success AND failure for 5ms
         const intCache = new PromiseCache<string>(() => {
-            switch( calls++ ) {
+            switch (calls++) {
                 case 0:
                 case 1:
                 case 3:
@@ -330,7 +334,7 @@ describe("Promise Cache", () => {
 
     it("can use failure handler", async () => {
         const cache = new PromiseCache<string>(allaysFails,
-            {onReject: () => Promise.resolve("fallback")},
+                {onReject: () => Promise.resolve("fallback")},
         );
 
         const promise = cache.get("key");
@@ -341,10 +345,10 @@ describe("Promise Cache", () => {
     it("failure handler puts result in cache if removeRejected:false", async () => {
         let calls = 0;
         const cache = new PromiseCache<string>(async () => {
-                calls += 1;
-                throw Error("failed to load");
-            },
-            {onReject: () => Promise.resolve("fallback"), removeRejected: false},
+                    calls += 1;
+                    throw Error("failed to load");
+                },
+                {onReject: () => Promise.resolve("fallback"), removeRejected: false},
         );
 
         const values = await Promise.all([cache.get("key"), cache.get("key")]);
@@ -356,13 +360,13 @@ describe("Promise Cache", () => {
     it("calls failure handler only once", async () => {
         let onRejectCalled = 0;
         const cache = new PromiseCache<string>(failsOneTime("value"), {
-                checkInterval: 5,
-                onReject: () => {
-                    onRejectCalled += 1;
-                    return Promise.resolve("fallback");
+                    checkInterval: 5,
+                    onReject: () => {
+                        onRejectCalled += 1;
+                        return Promise.resolve("fallback");
+                    },
+                    ttl: 2,
                 },
-                ttl: 2,
-            },
         );
 
         expect(await cache.get("key")).to.eq("fallback");
@@ -377,18 +381,43 @@ describe("Promise Cache", () => {
         let removeValue: Promise<string> | undefined;
 
         const cache = new PromiseCache<string>(() => Promise.resolve("value"),
-            {
-                checkInterval: 2,
-                onRemove: (key, value) => {
-                    removeKey = key;
-                    removeValue = value;
-                },
-                ttl: 5,
-            });
+                {
+                    checkInterval: 2,
+                    onRemove: (key, value) => {
+                        removeKey = key;
+                        removeValue = value;
+                    },
+                    ttl: 5,
+                });
 
         await cache.get("key");
 
         await wait(10);
+
+        expect(removeKey).to.eq("key");
+        expect(await removeValue).to.eq("value");
+    });
+
+    it("should call onRemove callback without check interval", async () => {
+        let removeKey: string | undefined;
+        let removeValue: Promise<string> | undefined;
+
+        const cache = new PromiseCache<string>(() => Promise.resolve("value"),
+                {
+                    checkInterval: "NEVER",
+                    onRemove: (key, value) => {
+                        removeKey = key;
+                        removeValue = value;
+                    },
+                    ttl: 5,
+                });
+
+        await cache.get("key");
+
+        await wait(10);
+
+        // access the key to trigger eviction
+        cache.get("key");
 
         expect(removeKey).to.eq("key");
         expect(await removeValue).to.eq("value");

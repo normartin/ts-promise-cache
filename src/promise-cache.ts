@@ -6,15 +6,15 @@ export class CacheConfig<T> {
     // time to live (milliseconds)
     public readonly ttl: number | "FOREVER" = "FOREVER";
     // specifies that entries should be removed 'ttl' milliseconds from either when the cache was accessed (read) or when the cache value was created or replaced
-    public readonly ttlAfter: "ACCESS"|"WRITE" = "ACCESS";
+    public readonly ttlAfter: "ACCESS" | "WRITE" = "ACCESS";
     // remove rejected promises?
     public readonly removeRejected: boolean = true;
     // fallback for rejected promises
     public readonly onReject: (error: Error, key: string, loader: (key: string) => Promise<T>) => Promise<T>
-        = (error) => Promise.reject(error)
+            = (error) => Promise.reject(error)
     // called before entries are removed because of ttl
     public readonly onRemove: (key: string, p: Promise<T>) => void
-        = () => undefined
+            = () => undefined
 }
 
 const defaultConfig = new CacheConfig();
@@ -32,13 +32,13 @@ class CacheEntry<T> {
         return this.v;
     }
 
-    public isStale( conf: CacheConfig<T> ): boolean {
-        if (conf.ttl === "FOREVER" ) {
+    public isStale(conf: CacheConfig<T>): boolean {
+        if (conf.ttl === "FOREVER") {
             return false;
-        } else if( conf.ttlAfter === "WRITE" ) {
-            return this.create + (conf.ttl as number) < Date.now();
+        } else if (conf.ttlAfter === "WRITE") {
+            return this.create + (conf.ttl) < Date.now();
         } else {
-            return this.lastAccess + (conf.ttl as number) < Date.now();
+            return this.lastAccess + (conf.ttl) < Date.now();
         }
     }
 }
@@ -61,17 +61,21 @@ export class PromiseCache<T> {
     public get(key: string): Promise<T> {
         const found = this.cache.get(key);
 
-        if (found && !found.isStale(this.conf)) {
-            this.stats.hit();
-            return found.value;
-        } else {
-            this.stats.miss();
-            const loaded = this.loader(key)
-                .catch((error) => this.handleReject(error, key));
-
-            this.cache.set(key, new CacheEntry<T>(loaded));
-            return loaded;
+        if (found) {
+            if (found.isStale(this.conf)) {
+                this.onRemove(key, found.value);
+            } else {
+                this.stats.hit();
+                return found.value;
+            }
         }
+
+        this.stats.miss();
+        const loaded = this.loader(key)
+        .catch((error) => this.handleReject(error, key));
+
+        this.cache.set(key, new CacheEntry<T>(loaded));
+        return loaded;
     }
 
     public set(key: string, value: T): void {
@@ -90,14 +94,18 @@ export class PromiseCache<T> {
             const [key, entry] = it;
 
             if (entry.isStale(this.conf)) {
-                try {
-                    this.conf.onRemove(key, entry.value);
-                } catch (error) {
-                    // nothing we can do
-                }
+                this.onRemove(key, entry.value);
                 this.cache.delete(key);
             }
         });
+    }
+
+    private onRemove(key: string, value: Promise<T>) {
+        try {
+            this.conf.onRemove(key, value);
+        } catch (error) {
+            // nothing we can do
+        }
     }
 
     private handleReject(error: Error, key: string): Promise<T> {
