@@ -28,7 +28,6 @@
     "posttest": "npm run tslint",
     "tslint": "tslint 'src/**/*.ts' 'test/**/*.ts'",
     "coverage": "nyc mocha",
-    "coveralls": "nyc report --reporter=text-lcov | coveralls",
     "validate": "npm run tslint && npm run coverage",
     "prepublishOnly": "npm run validate && npm run build",
     "mutation-test": "stryker run"
@@ -38,7 +37,6 @@
     "@types/mocha": "^7.0.2",
     "@types/node": "^14.0.5",
     "chai": "^4.2.0",
-    "coveralls": "^3.1.0",
     "del-cli": "^3.0.1",
     "mocha": "^7.2.0",
     "nyc": "^15.0.1",
@@ -76,7 +74,8 @@
     ],
     "reporter": [
       "text",
-      "html"
+      "html",
+      "lcov"
     ],
     "sourceMap": true,
     "instrument": true,
